@@ -38,6 +38,8 @@ export DEPLOY_KERNEL_URL=http://172.22.0.1:6180/images/ironic-python-agent.kerne
 export DEPLOY_RAMDISK_URL=http://172.22.0.1:6180/images/ironic-python-agent.initramfs
 export IRONIC_ENDPOINT=http://localhost:6385/v1/
 export IRONIC_INSPECTOR_ENDPOINT=http://localhost:5050/v1/
+export POD_NAMESPACE=testns
+export WATCH_NAMESPACE=
 export GO111MODULE=on
 export GOFLAGS=
 
@@ -149,7 +151,7 @@ deploy: $(KUSTOMIZE) manifests ## Deploy controller in the configured Kubernetes
 
 .PHONY: manifests
 manifests: $(CONTROLLER_GEN) $(KUSTOMIZE) ## Generate manifests e.g. CRD, RBAC etc.
-	$(CONTROLLER_GEN) $(CRD_OPTIONS) rbac:roleName=manager-role webhook paths="./..." output:crd:artifacts:config=config/crd/bases 
+	$(CONTROLLER_GEN) $(CRD_OPTIONS) rbac:roleName=manager-role webhook paths="./..." output:crd:artifacts:config=config/crd/bases
 	$(KUSTOMIZE) build config/default > config/render/capm3.yaml
 
 .PHONY: generate

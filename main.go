@@ -111,7 +111,7 @@ func main() {
 		Port:                    0, // Add flag with default of 9443 when adding webhooks
 		LeaderElection:          enableLeaderElection,
 		LeaderElectionID:        "baremetal-operator",
-		LeaderElectionNamespace: watchNamespace,
+		LeaderElectionNamespace: os.Getenv("POD_NAMESPACE"),
 		Namespace:               watchNamespace,
 		HealthProbeBindAddress:  healthAddr,
 	})

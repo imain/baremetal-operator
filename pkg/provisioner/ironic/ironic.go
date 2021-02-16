@@ -145,6 +145,10 @@ type ironicProvisioner struct {
 	log logr.Logger
 	// an event publisher for recording significant events
 	publisher provisioner.EventPublisher
+	// true if we are watching all namespaces
+	watchAllNamespaces bool
+	// the pod's namespace
+	podNamespace string
 }
 
 // LogStartup produces useful logging information that we only want to
@@ -192,15 +196,17 @@ func newProvisionerWithIronicClients(host metal3v1alpha1.BareMetalHost, bmcCreds
 	// we need.
 	clientIronic.Microversion = "1.56"
 	p := &ironicProvisioner{
-		host:      host,
-		status:    &(host.Status.Provisioning),
-		bmcAccess: bmcAccess,
-		bmcCreds:  bmcCreds,
-		client:    clientIronic,
-		inspector: clientInspector,
-		log:       log.WithValues("host", host.Name),
-		publisher: publisher,
+		host:               host,
+		status:             &(host.Status.Provisioning),
+		bmcAccess:          bmcAccess,
+		bmcCreds:           bmcCreds,
+		client:             clientIronic,
+		inspector:          clientInspector,
+		publisher:          publisher,
+		watchAllNamespaces: os.Getenv("WATCH_NAMESPACE") == "",
+		podNamespace:       os.Getenv("POD_NAMESPACE"),
 	}
+	p.log = log.WithValues("host", p.ironicNodeNameFromHost())
 
 	return p, nil
 }
@@ -303,18 +309,18 @@ func (p *ironicProvisioner) findExistingHost() (ironicNode *nodes.Node, err erro
 	}
 
 	// Try to load the node by name
-	p.log.Info("looking for existing node by name", "name", p.host.Name)
-	ironicNode, err = nodes.Get(p.client, p.host.Name).Extract()
+	p.log.Info("looking for existing node by name", "name", p.ironicNodeNameFromHost())
+	ironicNode, err = nodes.Get(p.client, p.ironicNodeNameFromHost()).Extract()
 	switch err.(type) {
 	case nil:
 		p.log.Info("found existing node by name")
 		return ironicNode, nil
 	case gophercloud.ErrDefault404:
 		p.log.Info(
-			fmt.Sprintf("node with name %s doesn't exist", p.host.Name))
+			fmt.Sprintf("node with name %s doesn't exist", p.ironicNodeNameFromHost()))
 	default:
 		return nil, errors.Wrap(err,
-			fmt.Sprintf("failed to find node by name %s", p.host.Name))
+			fmt.Sprintf("failed to find node by name %s", p.ironicNodeNameFromHost()))
 	}
 
 	// Try to load the node by port address
@@ -490,12 +496,12 @@ func (p *ironicProvisioner) ValidateManagementAccess(credentialsChanged, force b
 		// if there are differences.
 		provID = ironicNode.UUID
 
-		if ironicNode.Name == "" {
+		if ironicNode.Name != p.ironicNodeNameFromHost() {
 			updates := nodes.UpdateOpts{
 				nodes.UpdateOperation{
 					Op:    nodes.ReplaceOp,
 					Path:  "/name",
-					Value: p.host.Name,
+					Value: p.ironicNodeNameFromHost(),
 				},
 			}
 			ironicNode, err = nodes.Update(p.client, ironicNode.UUID, updates).Extract()
@@ -1784,6 +1790,14 @@ func (p *ironicProvisioner) softPowerOff() (result provisioner.Result, err error
 	return result, nil
 }
 
+func (p *ironicProvisioner) ironicNodeNameFromHost() string {
+	if !p.watchAllNamespaces || p.host.Namespace == p.podNamespace {
+		return p.host.Name
+	}
+
+	return p.host.Namespace + "." + p.host.Name
+}
+
 // IsReady checks if the provisioning backend is available
 func (p *ironicProvisioner) IsReady() (result bool, err error) {
 	p.log.Info("verifying ironic provisioner dependencies")
@@ -1801,7 +1815,7 @@ func (p *ironicProvisioner) HasProvisioningCapacity() (result bool, err error) {
 	}
 
 	// If the current host is already under processing then let's skip the test
-	if _, ok := hosts[p.host.Name]; ok {
+	if _, ok := hosts[p.ironicNodeNameFromHost()]; ok {
 		return true, nil
 	}
 
